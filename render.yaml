@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: kaviniya-finance
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: kaviniya-db-disk
+      mountPath: /data
+      sizeGB: 1
