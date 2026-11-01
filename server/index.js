@@ -790,6 +790,270 @@ app.patch('/api/loans/:id/staff', requireRoles(['OWNER', 'ADMIN']), (req, res) =
   res.json({ ok: true });
 });
 
+app.delete('/api/loans/:id', requireRoles(['OWNER', 'ADMIN']), (req, res) => {
+  const loan = db.prepare('SELECT * FROM loans WHERE id = ?').get(req.params.id);
+  if (!loan) throw new HttpError(404, 'Loan not found.');
+
+  runInTransaction(() => {
+    const payments = db.prepare('SELECT receipt_number FROM payments WHERE loan_id = ?').all(loan.id);
+    for (const p of payments) {
+      db.prepare('DELETE FROM cash_transactions WHERE reference_id IN (?, ?)').run(p.receipt_number, `REV-${p.receipt_number}`);
+      db.prepare('DELETE FROM accounting_ledger WHERE reference_code IN (?, ?)').run(p.receipt_number, `REV-${p.receipt_number}`);
+    }
+    const renewals = db.prepare('SELECT renewal_code FROM renewals WHERE old_loan_id = ? OR new_loan_id = ?').all(loan.id, loan.id);
+    for (const r of renewals) {
+      db.prepare('DELETE FROM cash_transactions WHERE reference_id = ?').run(r.renewal_code);
+      db.prepare('DELETE FROM accounting_ledger WHERE reference_code = ?').run(r.renewal_code);
+    }
+
+    // If this loan was a renewal of an older loan, clear the link before deleting
+    db.prepare('UPDATE loans SET renewed_to_loan_id = NULL WHERE renewed_to_loan_id = ?').run(loan.id);
+    db.prepare('UPDATE loans SET parent_loan_id = NULL WHERE parent_loan_id = ?').run(loan.id);
+
+    db.prepare('DELETE FROM renewals WHERE old_loan_id = ? OR new_loan_id = ?').run(loan.id, loan.id);
+    db.prepare('DELETE FROM loan_settlements WHERE old_loan_id = ? OR new_loan_id = ?').run(loan.id, loan.id);
+    db.prepare('DELETE FROM missed_collections WHERE loan_id = ?').run(loan.id);
+    db.prepare('DELETE FROM payments WHERE loan_id = ?').run(loan.id);
+    db.prepare('DELETE FROM repayment_schedules WHERE loan_id = ?').run(loan.id);
+    db.prepare('DELETE FROM cash_transactions WHERE reference_id = ?').run(loan.loan_number);
+    db.prepare('DELETE FROM accounting_ledger WHERE reference_code = ?').run(loan.loan_number);
+    db.prepare('DELETE FROM loans WHERE id = ?').run(loan.id);
+
+    logAudit(req.user, 'LOAN_DELETED', 'LOAN', loan.loan_number, `Deleted wrong loan entry ${loan.loan_number} (₹${loan.principal_amount})`);
+  });
+
+  res.json({ ok: true });
+});
+
+// =============================================================================
+// Monthly Interest Loans (மாத வட்டி கணக்கு)
+// =============================================================================
+function enrichMonthlyLoan(row) {
+  const endDate = row.status === 'CLOSED' && row.closed_date ? row.closed_date : todayISO();
+  const startMs = new Date(`${row.start_date}T00:00:00Z`).getTime();
+  const endMs = new Date(`${endDate}T00:00:00Z`).getTime();
+  const elapsedDays = Math.max(0, Math.round((endMs - startMs) / 86400000));
+  const fullMonths = Math.floor(elapsedDays / 30);
+  const extraDays = elapsedDays % 30;
+  // Minimum 1 month interest if active, or exact pro-rata for elapsed days
+  const billableMonths = elapsedDays === 0 ? 1 : Math.max(1, Number((elapsedDays / 30).toFixed(2)));
+  const totalInterestAccrued = Math.round((Math.max(30, elapsedDays) / 30) * row.monthly_interest_amount);
+  const fullMonthsInterest = Math.max(1, fullMonths) * row.monthly_interest_amount;
+  const pendingInterest =
+    row.status === 'CLOSED'
+      ? 0
+      : Math.max(0, totalInterestAccrued - row.interest_paid_total - row.discount_amount);
+  const totalToCloseToday = row.status === 'CLOSED' ? 0 : row.principal_balance + pendingInterest;
+  const payments = db
+    .prepare('SELECT * FROM monthly_loan_payments WHERE monthly_loan_id = ? ORDER BY payment_date DESC, created_at DESC')
+    .all(row.id);
+
+  return {
+    ...row,
+    elapsed_days: elapsedDays,
+    full_months: fullMonths,
+    extra_days: extraDays,
+    billable_months: billableMonths,
+    total_interest_accrued: totalInterestAccrued,
+    full_months_interest: fullMonthsInterest,
+    pending_interest: pendingInterest,
+    total_to_close_today: totalToCloseToday,
+    payments,
+  };
+}
+
+app.get('/api/monthly-loans', (req, res) => {
+  const rows = db.prepare('SELECT * FROM monthly_loans ORDER BY status ASC, start_date DESC, created_at DESC').all();
+  res.json({ loans: rows.map(enrichMonthlyLoan), today: todayISO() });
+});
+
+app.post('/api/monthly-loans', requireRoles(['OWNER', 'ADMIN']), (req, res) => {
+  const b = req.body || {};
+  const customer_name = requireText(b.customer_name, 'Customer name', { max: 100 });
+  const mobile = validateMobile(b.mobile);
+  const area = optText(b.area, 100);
+  const notes = optText(b.notes, 300);
+  const principal = requireInt(b.principal_amount, 'Principal amount', { min: 500, max: 50000000 });
+  const interest_percent = Number(b.interest_percent ?? 2);
+  if (Number.isNaN(interest_percent) || interest_percent < 0 || interest_percent > 50) {
+    throw new HttpError(400, 'Interest percent must be between 0 and 50.');
+  }
+  const monthly_interest_amount =
+    b.monthly_interest_amount !== undefined && b.monthly_interest_amount !== ''
+      ? requireInt(b.monthly_interest_amount, 'Monthly interest amount', { min: 0, max: principal })
+      : Math.round((principal * interest_percent) / 100);
+  const start_date = b.start_date && isValidDate(b.start_date) ? b.start_date : todayISO();
+  const mode = MODES.includes(b.disbursement_mode) ? b.disbursement_mode : 'CASH';
+
+  const created = runInTransaction(() => {
+    const id = uid('MLN');
+    const code = `ML${nextSeq('monthly_loan', 101)}`;
+    db.prepare(
+      `INSERT INTO monthly_loans (
+         id, loan_code, customer_name, mobile, area, notes,
+         principal_amount, principal_paid, principal_balance,
+         interest_percent, monthly_interest_amount, start_date,
+         disbursement_mode, interest_paid_total, discount_amount,
+         status, created_by, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, 'ACTIVE', ?, ?)`
+    ).run(
+      id, code, customer_name, mobile, area, notes,
+      principal, principal, interest_percent, monthly_interest_amount,
+      start_date, mode, req.user.id, nowIST()
+    );
+
+    insertCash({
+      branchId: 'BR-01',
+      date: start_date,
+      direction: 'OUTFLOW',
+      category: 'MONTHLY_LOAN_DISBURSEMENT',
+      mode,
+      amount: principal,
+      reference: code,
+      description: `Monthly Loan ${code} to ${customer_name} (@ ${interest_percent}% / ₹${monthly_interest_amount} per month)`,
+      userId: req.user.id,
+    });
+
+    logAudit(req.user, 'MONTHLY_LOAN_CREATED', 'MONTHLY_LOAN', code, `Monthly loan ₹${principal} to ${customer_name} (${interest_percent}% = ₹${monthly_interest_amount}/mo)`);
+    return enrichMonthlyLoan(db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(id));
+  });
+
+  res.status(201).json({ loan: created });
+});
+
+app.post('/api/monthly-loans/:id/pay', requireRoles(['OWNER', 'ADMIN', 'COLLECTION_STAFF']), (req, res) => {
+  const row = db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(req.params.id);
+  if (!row) throw new HttpError(404, 'Monthly loan not found.');
+  if (row.status === 'CLOSED') throw new HttpError(400, 'This monthly loan is already closed.');
+
+  const b = req.body || {};
+  const amount = requireInt(b.amount_paid, 'Amount', { min: 1, max: 50000000 });
+  const payment_type = ['INTEREST', 'PRINCIPAL'].includes(b.payment_type) ? b.payment_type : 'INTEREST';
+  const payment_date = b.payment_date && isValidDate(b.payment_date) ? b.payment_date : todayISO();
+  const mode = MODES.includes(b.payment_mode) ? b.payment_mode : 'CASH';
+  const notes = optText(b.notes, 200);
+
+  const updated = runInTransaction(() => {
+    const rno = `MR${nextSeq('monthly_receipt', 1001)}`;
+    db.prepare(
+      `INSERT INTO monthly_loan_payments (id, receipt_no, monthly_loan_id, payment_date, payment_type, amount_paid, discount_given, payment_mode, notes, recorded_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`
+    ).run(uid('MLP'), rno, row.id, payment_date, payment_type, amount, mode, notes, req.user.id, nowIST());
+
+    if (payment_type === 'INTEREST') {
+      db.prepare('UPDATE monthly_loans SET interest_paid_total = interest_paid_total + ? WHERE id = ?').run(amount, row.id);
+    } else {
+      const newPaid = Math.min(row.principal_amount, row.principal_paid + amount);
+      const newBal = Math.max(0, row.principal_amount - newPaid);
+      db.prepare('UPDATE monthly_loans SET principal_paid = ?, principal_balance = ?, status = ? WHERE id = ?').run(
+        newPaid,
+        newBal,
+        newBal === 0 ? 'CLOSED' : 'ACTIVE',
+        row.id
+      );
+    }
+
+    insertCash({
+      branchId: 'BR-01',
+      date: payment_date,
+      direction: 'INFLOW',
+      category: payment_type === 'INTEREST' ? 'MONTHLY_INTEREST_COLLECTION' : 'MONTHLY_PRINCIPAL_COLLECTION',
+      mode,
+      amount,
+      reference: rno,
+      description: `Monthly ${payment_type} (${row.loan_code}) from ${row.customer_name}`,
+      userId: req.user.id,
+    });
+
+    logAudit(req.user, 'MONTHLY_LOAN_PAYMENT', 'MONTHLY_LOAN', row.loan_code, `Received ₹${amount} (${payment_type}) from ${row.customer_name}`);
+    return enrichMonthlyLoan(db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(row.id));
+  });
+
+  res.status(201).json({ loan: updated });
+});
+
+app.post('/api/monthly-loans/:id/close', requireRoles(['OWNER', 'ADMIN']), (req, res) => {
+  const row = db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(req.params.id);
+  if (!row) throw new HttpError(404, 'Monthly loan not found.');
+  if (row.status === 'CLOSED') throw new HttpError(400, 'This monthly loan is already closed.');
+
+  const enriched = enrichMonthlyLoan(row);
+  const b = req.body || {};
+  const settlement_amount = requireInt(b.settlement_amount, 'Settlement amount', { min: 0, max: 50000000 });
+  const discount_amount =
+    b.discount_amount !== undefined && b.discount_amount !== ''
+      ? requireInt(b.discount_amount, 'Discount amount', { min: 0, max: 50000000 })
+      : Math.max(0, enriched.total_to_close_today - settlement_amount);
+  const closed_date = b.closed_date && isValidDate(b.closed_date) ? b.closed_date : todayISO();
+  const mode = MODES.includes(b.payment_mode) ? b.payment_mode : 'CASH';
+  const notes = optText(b.notes, 200) || `Full settlement closed (Discount ₹${discount_amount})`;
+
+  const interestPortion = Math.max(0, settlement_amount - row.principal_balance);
+
+  const updated = runInTransaction(() => {
+    const rno = `MR${nextSeq('monthly_receipt', 1001)}`;
+    db.prepare(
+      `INSERT INTO monthly_loan_payments (id, receipt_no, monthly_loan_id, payment_date, payment_type, amount_paid, discount_given, payment_mode, notes, recorded_by, created_at)
+       VALUES (?, ?, ?, ?, 'SETTLEMENT_CLOSE', ?, ?, ?, ?, ?, ?)`
+    ).run(uid('MLP'), rno, row.id, closed_date, settlement_amount, discount_amount, mode, notes, req.user.id, nowIST());
+
+    db.prepare(
+      `UPDATE monthly_loans
+       SET principal_paid = principal_amount,
+           principal_balance = 0,
+           interest_paid_total = interest_paid_total + ?,
+           discount_amount = discount_amount + ?,
+           closed_date = ?,
+           closed_settlement_amount = ?,
+           status = 'CLOSED'
+       WHERE id = ?`
+    ).run(interestPortion, discount_amount, closed_date, settlement_amount, row.id);
+
+    if (settlement_amount > 0) {
+      insertCash({
+        branchId: 'BR-01',
+        date: closed_date,
+        direction: 'INFLOW',
+        category: 'MONTHLY_LOAN_CLOSURE',
+        mode,
+        amount: settlement_amount,
+        reference: rno,
+        description: `Monthly Loan Closed ${row.loan_code} (${row.customer_name}) — Paid ₹${settlement_amount}, Discount ₹${discount_amount}`,
+        userId: req.user.id,
+      });
+    }
+
+    logAudit(
+      req.user,
+      'MONTHLY_LOAN_CLOSED',
+      'MONTHLY_LOAN',
+      row.loan_code,
+      `Closed ${row.loan_code} (${row.customer_name}): Received ₹${settlement_amount}, Discount ₹${discount_amount}`
+    );
+    return enrichMonthlyLoan(db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(row.id));
+  });
+
+  res.json({ loan: updated });
+});
+
+app.delete('/api/monthly-loans/:id', requireRoles(['OWNER', 'ADMIN']), (req, res) => {
+  const row = db.prepare('SELECT * FROM monthly_loans WHERE id = ?').get(req.params.id);
+  if (!row) throw new HttpError(404, 'Monthly loan not found.');
+
+  runInTransaction(() => {
+    const payments = db.prepare('SELECT receipt_no FROM monthly_loan_payments WHERE monthly_loan_id = ?').all(row.id);
+    for (const p of payments) {
+      db.prepare('DELETE FROM cash_transactions WHERE reference_id = ?').run(p.receipt_no);
+    }
+    db.prepare('DELETE FROM cash_transactions WHERE reference_id = ?').run(row.loan_code);
+    db.prepare('DELETE FROM monthly_loan_payments WHERE monthly_loan_id = ?').run(row.id);
+    db.prepare('DELETE FROM monthly_loans WHERE id = ?').run(row.id);
+    logAudit(req.user, 'MONTHLY_LOAN_DELETED', 'MONTHLY_LOAN', row.loan_code, `Deleted monthly loan ${row.loan_code} (${row.customer_name})`);
+  });
+
+  res.json({ ok: true });
+});
+
 // =============================================================================
 // Daily collections & payments
 // =============================================================================

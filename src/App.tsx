@@ -22,6 +22,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
+  Trash2,
+  Percent,
 } from 'lucide-react';
 import { formatINR, Lang } from './i18n';
 import { ReceiptModal } from './components/ReceiptModal';
@@ -32,12 +34,14 @@ import {
   AccountingLedgerView,
 } from './components/ReportsAndLedgerView';
 import { MobileFieldApp } from './components/MobileFieldApp';
+import { MonthlyInterestView } from './components/MonthlyInterestView';
 
 type ModuleKey =
   | 'dashboard'
   | 'collections'
   | 'customers'
   | 'loans'
+  | 'monthly_loans'
   | 'renewals'
   | 'cashbook'
   | 'ledger'
@@ -496,6 +500,27 @@ export function App() {
     await loadAllData();
   };
 
+  const handleDeleteLoan = async (loan: any) => {
+    if (
+      !window.confirm(
+        `${loan.customer_name} — ${loan.loan_number} (${formatINR(loan.principal_amount)}) கடன் பதிவை நிரந்தரமாக நீக்க விரும்புகிறீர்களா?`
+      )
+    ) {
+      return;
+    }
+    const res = await fetch(`/api/loans/${loan.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.error || 'Failed to delete loan', 'err');
+      return;
+    }
+    showToast(`${loan.loan_number} கடன் பதிவு நீக்கப்பட்டது!`);
+    await loadAllData();
+  };
+
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetch('/api/staff', {
@@ -770,9 +795,15 @@ export function App() {
     },
     {
       id: 'loans',
-      label: lang === 'ta' ? 'கடன்கள் (Loans)' : 'Loans',
+      label: lang === 'ta' ? 'தினசரி கடன்கள் (Daily Loans)' : 'Daily Loans',
       icon: Briefcase,
       allowed: true,
+    },
+    {
+      id: 'monthly_loans',
+      label: lang === 'ta' ? 'மாத வட்டி கணக்கு (Monthly)' : 'Monthly Interest',
+      icon: Percent,
+      allowed: !isStaffRole,
     },
     {
       id: 'renewals',
@@ -1718,6 +1749,17 @@ export function App() {
                               >
                                 தவணை அட்டவணை
                               </button>
+                              {!isStaffRole && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteLoan(l)}
+                                  className="px-2.5 py-1.5 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded inline-flex items-center gap-1"
+                                  title="தவறான கடன் பதிவை நீக்கு"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  நீக்கு
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -1727,6 +1769,18 @@ export function App() {
                 )}
               </div>
             </div>
+          )}
+
+          {/* =================================================================
+              4B. MONTHLY INTEREST LOANS (மாத வட்டி கணக்கு)
+          ================================================================= */}
+          {activeModule === 'monthly_loans' && (
+            <MonthlyInterestView
+              token={token}
+              lang={lang}
+              onRefreshGlobal={loadAllData}
+              showToast={showToast}
+            />
           )}
 
           {/* =================================================================

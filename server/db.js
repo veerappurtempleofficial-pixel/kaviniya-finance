@@ -392,6 +392,43 @@ export function initDatabase() {
       UNIQUE (loan_id, missed_date)
     );
 
+    CREATE TABLE IF NOT EXISTS monthly_loans (
+      id TEXT PRIMARY KEY,
+      loan_code TEXT UNIQUE NOT NULL,
+      customer_name TEXT NOT NULL,
+      mobile TEXT NOT NULL,
+      area TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      principal_amount INTEGER NOT NULL,
+      principal_paid INTEGER NOT NULL DEFAULT 0,
+      principal_balance INTEGER NOT NULL,
+      interest_percent REAL NOT NULL,
+      monthly_interest_amount INTEGER NOT NULL,
+      start_date TEXT NOT NULL,
+      disbursement_mode TEXT NOT NULL DEFAULT 'CASH',
+      interest_paid_total INTEGER NOT NULL DEFAULT 0,
+      discount_amount INTEGER NOT NULL DEFAULT 0,
+      closed_date TEXT,
+      closed_settlement_amount INTEGER,
+      status TEXT NOT NULL DEFAULT 'ACTIVE',
+      created_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS monthly_loan_payments (
+      id TEXT PRIMARY KEY,
+      receipt_no TEXT UNIQUE NOT NULL,
+      monthly_loan_id TEXT NOT NULL REFERENCES monthly_loans(id) ON DELETE CASCADE,
+      payment_date TEXT NOT NULL,
+      payment_type TEXT NOT NULL,
+      amount_paid INTEGER NOT NULL,
+      discount_given INTEGER NOT NULL DEFAULT 0,
+      payment_mode TEXT NOT NULL DEFAULT 'CASH',
+      notes TEXT NOT NULL DEFAULT '',
+      recorded_by TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS loan_settlements (
       id TEXT PRIMARY KEY,
       settlement_code TEXT UNIQUE NOT NULL,
