@@ -2,12 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+:root,
+[data-theme="emerald"] {
+  --kf-bg: #F3F7F6;
+  --kf-surface: #FFFFFF;
+  --kf-surface-muted: #ECF3F1;
+  --kf-border: #D9E5E1;
+  --kf-text: #0B211D;
+  --kf-text-muted: #526B65;
+  --kf-sidebar-bg: linear-gradient(180deg, #061C18 0%, #092923 100%);
+  --kf-sidebar-solid: #07211C;
+  --kf-sidebar-active: #10B981;
+  --kf-sidebar-active-bg: rgba(16, 185, 129, 0.16);
+  --kf-primary: #059669;
+  --kf-primary-hover: #047857;
+  --kf-secondary: #0F766E;
+  --kf-badge-gold: #34D399;
+  --kf-hero-bg: linear-gradient(135deg, #062822 0%, #0D443A 100%);
+  --kf-shadow: 0 4px 20px -2px rgba(6, 28, 24, 0.06), 0 1px 3px 0 rgba(6, 28, 24, 0.04);
+}
+
+[data-theme="violet"] {
+  --kf-bg: #F5F4FA;
+  --kf-surface: #FFFFFF;
+  --kf-surface-muted: #EEECF8;
+  --kf-border: #DFDCF0;
+  --kf-text: #14112E;
+  --kf-text-muted: #5D587A;
+  --kf-sidebar-bg: linear-gradient(180deg, #0E0B24 0%, #19143D 100%);
+  --kf-sidebar-solid: #120E2E;
+  --kf-sidebar-active: #8B5CF6;
+  --kf-sidebar-active-bg: rgba(139, 92, 246, 0.2);
+  --kf-primary: #6D28D9;
+  --kf-primary-hover: #5B21B6;
+  --kf-secondary: #10B981;
+  --kf-badge-gold: #C4B5FD;
+  --kf-hero-bg: linear-gradient(135deg, #1E1548 0%, #3B1E77 100%);
+  --kf-shadow: 0 4px 20px -2px rgba(20, 17, 46, 0.07), 0 1px 3px 0 rgba(20, 17, 46, 0.04);
+}
+
+[data-theme="luxury"] {
+  --kf-bg: #F8F7F4;
+  --kf-surface: #FFFFFF;
+  --kf-surface-muted: #F2EFE9;
+  --kf-border: #E5E0D5;
+  --kf-text: #141413;
+  --kf-text-muted: #66635B;
+  --kf-sidebar-bg: linear-gradient(180deg, #0B0C0E 0%, #16181D 100%);
+  --kf-sidebar-solid: #0E1014;
+  --kf-sidebar-active: #F59E0B;
+  --kf-sidebar-active-bg: rgba(245, 158, 11, 0.16);
+  --kf-primary: #B45309;
+  --kf-primary-hover: #92400E;
+  --kf-secondary: #059669;
+  --kf-badge-gold: #FCD34D;
+  --kf-hero-bg: linear-gradient(135deg, #111318 0%, #232730 100%);
+  --kf-shadow: 0 4px 20px -2px rgba(20, 20, 19, 0.07), 0 1px 3px 0 rgba(20, 20, 19, 0.04);
+}
+
+[data-theme="dark"] {
+  --kf-bg: #0B0F17;
+  --kf-surface: #131B2E;
+  --kf-surface-muted: #1A243B;
+  --kf-border: #26334D;
+  --kf-text: #F1F5F9;
+  --kf-text-muted: #94A3B8;
+  --kf-sidebar-bg: linear-gradient(180deg, #070A10 0%, #0F1523 100%);
+  --kf-sidebar-solid: #090D16;
+  --kf-sidebar-active: #38BDF8;
+  --kf-sidebar-active-bg: rgba(56, 189, 248, 0.16);
+  --kf-primary: #0EA5E9;
+  --kf-primary-hover: #0284C7;
+  --kf-secondary: #10B981;
+  --kf-badge-gold: #38BDF8;
+  --kf-hero-bg: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+  --kf-shadow: 0 8px 28px -4px rgba(0, 0, 0, 0.45);
+}
+
 @layer base {
   html, body {
     font-family: 'Inter', 'Noto Sans Tamil', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background-color: #F7F8FA;
-    color: #14283F;
+    background-color: var(--kf-bg);
+    color: var(--kf-text);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   .tabular-nums {
@@ -15,20 +93,88 @@
   }
 }
 
-/* Enterprise ERP Scrollbars */
+/* Dynamic Theme Remapping Across All Modules & Modals */
+[data-theme] .bg-\[\#F7F8FA\] {
+  background-color: var(--kf-bg) !important;
+}
+[data-theme] .bg-white {
+  background-color: var(--kf-surface) !important;
+}
+[data-theme] .border-\[\#D5DCE4\],
+[data-theme] .border-\[\#E8EDF2\] {
+  border-color: var(--kf-border) !important;
+}
+[data-theme] .divide-\[\#E8EDF2\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--kf-border) !important;
+}
+[data-theme] .text-\[\#14283F\] {
+  color: var(--kf-text) !important;
+}
+[data-theme] .text-\[\#244B70\] {
+  color: var(--kf-primary) !important;
+}
+[data-theme] .bg-\[\#244B70\] {
+  background-color: var(--kf-primary) !important;
+}
+[data-theme] .hover\:bg-\[\#14283F\]:hover {
+  background-color: var(--kf-primary-hover) !important;
+}
+[data-theme] .bg-\[\#188A78\] {
+  background-color: var(--kf-secondary) !important;
+}
+[data-theme] .text-\[\#188A78\] {
+  color: var(--kf-secondary) !important;
+}
+[data-theme] .bg-\[\#14283F\] {
+  background: var(--kf-hero-bg) !important;
+}
+[data-theme] .bg-\[\#0E1D2F\] {
+  background-color: var(--kf-sidebar-solid) !important;
+}
+
+/* Dark mode input & text contrast refinements */
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: #0F1626 !important;
+  color: #F8FAFC !important;
+  border-color: #2A3957 !important;
+}
+[data-theme="dark"] .text-slate-500,
+[data-theme="dark"] .text-slate-600,
+[data-theme="dark"] .text-slate-700 {
+  color: #94A3B8 !important;
+}
+[data-theme="dark"] .hover\:bg-\[\#F7F8FA\]:hover {
+  background-color: #1A243B !important;
+}
+
+/* Trending Fintech Card & Button Polish */
+.kf-card {
+  background-color: var(--kf-surface);
+  border: 1px solid var(--kf-border);
+  border-radius: 14px;
+  box-shadow: var(--kf-shadow);
+}
+
+.kf-sidebar {
+  background: var(--kf-sidebar-bg);
+}
+
+/* Smooth Modern Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #E8EDF2;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #9AA8B8;
-  border-radius: 2px;
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #244B70;
+  background: var(--kf-primary);
 }
 
 /* Print Styles for Receipts & Financial Statements */
@@ -38,5 +184,6 @@
   }
   body {
     background: #FFFFFF !important;
+    color: #000000 !important;
   }
 }

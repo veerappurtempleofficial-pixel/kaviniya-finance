@@ -45,10 +45,27 @@ type ModuleKey =
   | 'staff'
   | 'settings';
 
+type ThemeKey = 'emerald' | 'violet' | 'luxury' | 'dark';
+
+const THEMES: { id: ThemeKey; name: string; nameTa: string; dot: string }[] = [
+  { id: 'emerald', name: 'Emerald Fintech', nameTa: 'பச்சை (Emerald)', dot: '#10B981' },
+  { id: 'violet', name: 'Royal Violet', nameTa: 'வயலட் (Violet)', dot: '#8B5CF6' },
+  { id: 'luxury', name: 'Luxury Gold', nameTa: 'கோல்டு (Gold)', dot: '#F59E0B' },
+  { id: 'dark', name: 'Dark Mode', nameTa: 'டார்க் (Dark)', dot: '#38BDF8' },
+];
+
 export function App() {
   const [lang, setLang] = useState<Lang>('ta');
+  const [theme, setTheme] = useState<ThemeKey>(
+    () => (localStorage.getItem('kaviniya_theme') as ThemeKey) || 'emerald'
+  );
   const [activeModule, setActiveModule] = useState<ModuleKey>('dashboard');
   const [mobilePreview, setMobilePreview] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('kaviniya_theme', theme);
+  }, [theme]);
 
   // Real Session Auth State
   const [token, setToken] = useState<string>(() => localStorage.getItem('kaviniya_token') || '');
@@ -579,34 +596,62 @@ export function App() {
   }
 
   // ===========================================================================
-  // DEDICATED LOGIN SCREEN (Real Session Authentication)
+  // DEDICATED LOGIN SCREEN (Modern Fintech Portal + Live Theme Switcher)
   // ===========================================================================
   if (!token || !currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#14283F] p-4">
-        <div className="w-full max-w-md bg-white border border-[#D5DCE4] rounded-md shadow-2xl overflow-hidden">
-          <div className="bg-[#0E1D2F] text-white px-6 py-5 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#B78727] text-[#14283F] font-bold text-lg flex items-center justify-center rounded">
+      <div className="min-h-screen flex flex-col items-center justify-center kf-sidebar p-4">
+        {/* Live Theme Switcher Pill Bar */}
+        <div className="mb-5 bg-black/30 backdrop-blur-md border border-white/15 rounded-full px-3 py-1.5 flex items-center gap-1.5 shadow-lg">
+          <span className="text-[11px] font-semibold text-white/70 px-2">Theme:</span>
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTheme(t.id)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                theme === t.id
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: t.dot }}
+              />
+              <span>{t.name}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="w-full max-w-md bg-white border border-[#D5DCE4] rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-[#14283F] text-white px-7 py-6 border-b border-white/10">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="w-11 h-11 font-extrabold text-lg flex items-center justify-center rounded-xl shadow-md text-slate-950"
+                style={{ backgroundColor: 'var(--kf-badge-gold)' }}
+              >
                 KF
               </div>
               <div>
-                <h1 className="text-lg font-bold tracking-wide">KAVINIYA FINANCE</h1>
-                <p className="text-xs text-[#E6D09C]">கவினியா பைனான்ஸ் • Daily Finance Management</p>
+                <h1 className="text-lg font-extrabold tracking-wide text-white">KAVINIYA FINANCE</h1>
+                <p className="text-xs text-white/80 mt-0.5">
+                  கவினியா பைனான்ஸ் • Smart Daily Finance ERP
+                </p>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleLogin} className="p-6 space-y-4 text-sm">
+          <form onSubmit={handleLogin} className="p-7 space-y-4 text-sm">
             {loginError && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded flex items-center gap-2">
+              <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{loginError}</span>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 பயனர் பெயர் / Username
               </label>
               <input
@@ -615,14 +660,14 @@ export function App() {
                 autoFocus
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
-                placeholder="owner"
-                className="w-full px-3.5 py-2.5 border border-[#D5DCE4] rounded-md focus:outline-none focus:border-[#244B70]"
+                placeholder="owner அல்லது staff username"
+                className="w-full px-4 py-2.5 border border-[#D5DCE4] rounded-xl focus:outline-none focus:border-[#244B70]"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-semibold text-slate-700">
+                <label className="block text-xs font-bold text-slate-700">
                   கடவுச்சொல் / Password
                 </label>
                 <button
@@ -639,28 +684,31 @@ export function App() {
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
                 placeholder="Enter password"
-                className="w-full px-3.5 py-2.5 border border-[#D5DCE4] rounded-md focus:outline-none focus:border-[#244B70]"
+                className="w-full px-4 py-2.5 border border-[#D5DCE4] rounded-xl focus:outline-none focus:border-[#244B70]"
               />
             </div>
 
             <button
               type="submit"
               disabled={loginBusy}
-              className="w-full py-3 bg-[#244B70] hover:bg-[#14283F] text-white font-semibold rounded-md flex items-center justify-center gap-2"
+              className="w-full py-3 bg-[#244B70] hover:bg-[#14283F] text-white font-bold rounded-xl shadow-md flex items-center justify-center gap-2 transition-all"
             >
               <Lock className="w-4 h-4" />
               {loginBusy ? 'Signing in...' : 'உள்நுழைக (Sign In)'}
             </button>
 
             <div className="pt-3 border-t border-[#E8EDF2] text-xs text-slate-500 flex items-center justify-between">
-              <span>Initial Owner Login: <strong className="font-mono text-[#14283F]">owner</strong> / <strong className="font-mono text-[#14283F]">Owner@123</strong></span>
+              <span>
+                Owner Login: <strong className="font-mono text-[#14283F]">owner</strong> /{' '}
+                <strong className="font-mono text-[#14283F]">Owner@123</strong>
+              </span>
               <button
                 type="button"
                 onClick={() => {
                   setLoginUsername('owner');
                   setLoginPassword('Owner@123');
                 }}
-                className="text-[#244B70] font-semibold hover:underline"
+                className="text-[#244B70] font-bold hover:underline"
               >
                 Fill Default
               </button>
@@ -785,27 +833,30 @@ export function App() {
       )}
 
       {/* =====================================================================
-          CLEAN SIDEBAR (#14283F Deep Navy)
+          MODERN FINTECH SIDEBAR
       ===================================================================== */}
-      <aside className="w-64 bg-[#14283F] text-white flex flex-col justify-between shrink-0 hidden lg:flex select-none">
+      <aside className="w-68 kf-sidebar text-white flex flex-col justify-between shrink-0 hidden lg:flex select-none shadow-xl">
         <div>
           <div className="px-6 py-5 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-[#B78727] text-[#14283F] font-bold text-base flex items-center justify-center rounded">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="w-10 h-10 font-extrabold text-base flex items-center justify-center rounded-xl text-slate-950 shadow-md"
+                style={{ backgroundColor: 'var(--kf-badge-gold)' }}
+              >
                 KF
               </div>
               <div>
-                <div className="text-base font-bold tracking-wide text-white">
+                <div className="text-base font-extrabold tracking-wide text-white">
                   {companySettings.company_name || 'KAVINIYA FINANCE'}
                 </div>
-                <div className="text-xs text-[#E6D09C] mt-0.5">
+                <div className="text-xs text-white/75 mt-0.5">
                   {companySettings.company_name_ta || 'கவினியா பைனான்ஸ்'}
                 </div>
               </div>
             </div>
           </div>
 
-          <nav className="p-3 space-y-1 mt-1">
+          <nav className="p-3.5 space-y-1.5 mt-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const active = activeModule === item.id;
@@ -813,13 +864,24 @@ export function App() {
                 <button
                   key={item.id}
                   onClick={() => setActiveModule(item.id as ModuleKey)}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm rounded transition-colors border-l-4 ${
+                  style={
                     active
-                      ? 'bg-[#244B70] text-white border-[#B78727] font-semibold'
-                      : 'border-transparent text-slate-300 hover:bg-white/5 hover:text-white'
+                      ? {
+                          backgroundColor: 'var(--kf-sidebar-active-bg)',
+                          borderColor: 'var(--kf-sidebar-active)',
+                        }
+                      : undefined
+                  }
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm rounded-xl transition-all border-l-4 ${
+                    active
+                      ? 'text-white font-bold shadow-sm'
+                      : 'border-transparent text-white/70 hover:bg-white/5 hover:text-white'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-[#E6D09C]' : 'text-slate-400'}`} />
+                  <Icon
+                    className="w-4 h-4 shrink-0"
+                    style={active ? { color: 'var(--kf-sidebar-active)' } : undefined}
+                  />
                   <span>{item.label}</span>
                 </button>
               );
@@ -827,14 +889,14 @@ export function App() {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-white/10 bg-[#0E1D2F] flex items-center justify-between">
+        <div className="p-4 m-3 rounded-xl border border-white/10 bg-black/25 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-white">{currentUser?.full_name}</div>
-            <div className="text-xs text-[#E6D09C]">{currentUser?.role_code}</div>
+            <div className="text-sm font-bold text-white">{currentUser?.full_name}</div>
+            <div className="text-[11px] font-mono text-white/70">{currentUser?.role_code}</div>
           </div>
           <button
             onClick={handleLogout}
-            className="px-3 py-1.5 text-xs font-semibold bg-white/10 hover:bg-red-700 text-white rounded flex items-center gap-1"
+            className="px-3 py-1.5 text-xs font-semibold bg-white/10 hover:bg-red-600 text-white rounded-lg flex items-center gap-1 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
             வெளியேறு
@@ -846,12 +908,12 @@ export function App() {
           MAIN WORKSPACE
       ===================================================================== */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-[#D5DCE4] px-5 lg:px-8 flex items-center justify-between gap-4 sticky top-0 z-30">
+        <header className="h-16 bg-white border-b border-[#D5DCE4] px-5 lg:px-8 flex items-center justify-between gap-4 sticky top-0 z-30 shadow-sm">
           <div className="flex items-center gap-3">
             <select
               value={activeModule}
               onChange={(e) => setActiveModule(e.target.value as ModuleKey)}
-              className="lg:hidden px-3 py-2 text-sm font-bold bg-[#14283F] text-white rounded"
+              className="lg:hidden px-3 py-2 text-sm font-bold bg-[#244B70] text-white rounded-lg"
             >
               {menuItems.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -859,15 +921,38 @@ export function App() {
                 </option>
               ))}
             </select>
-            <h1 className="text-lg font-bold text-[#14283F] hidden sm:block">
+            <h1 className="text-lg font-extrabold text-[#14283F] hidden sm:block">
               {menuItems.find((m) => m.id === activeModule)?.label}
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            {/* 1-Click Live Theme Switcher */}
+            <div className="hidden md:flex items-center gap-1 bg-[#F7F8FA] border border-[#D5DCE4] rounded-full p-1">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTheme(t.id)}
+                  title={t.name}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                    theme === t.id
+                      ? 'bg-[#244B70] text-white shadow-sm'
+                      : 'text-[#14283F] hover:bg-black/5'
+                  }`}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/40"
+                    style={{ backgroundColor: t.dot }}
+                  />
+                  <span className="hidden xl:inline">{lang === 'ta' ? t.nameTa : t.name}</span>
+                </button>
+              ))}
+            </div>
+
             <button
               onClick={() => setLang(lang === 'ta' ? 'en' : 'ta')}
-              className="px-3.5 py-2 text-sm font-semibold text-[#14283F] bg-[#F7F8FA] hover:bg-[#E8EDF2] border border-[#D5DCE4] rounded flex items-center gap-2"
+              className="px-3.5 py-2 text-xs font-bold text-[#14283F] bg-[#F7F8FA] hover:bg-[#E8EDF2] border border-[#D5DCE4] rounded-xl flex items-center gap-1.5"
             >
               <Languages className="w-4 h-4 text-[#244B70]" />
               <span>{lang === 'ta' ? 'English' : 'தமிழ்'}</span>
@@ -875,7 +960,7 @@ export function App() {
 
             <button
               onClick={() => setMobilePreview(true)}
-              className="px-3.5 py-2 text-sm font-semibold text-white bg-[#188A78] hover:bg-[#136F60] rounded flex items-center gap-2"
+              className="px-3.5 py-2 text-xs font-bold text-white bg-[#188A78] hover:opacity-90 rounded-xl shadow-sm flex items-center gap-1.5"
             >
               <Smartphone className="w-4 h-4" />
               <span className="hidden sm:inline">
@@ -885,7 +970,7 @@ export function App() {
 
             <button
               onClick={handleLogout}
-              className="lg:hidden px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded"
+              className="lg:hidden px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-xl"
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -898,16 +983,14 @@ export function App() {
           ================================================================= */}
           {activeModule === 'dashboard' && (
             <div className="space-y-6">
-              <div className="bg-white border border-[#D5DCE4] rounded-md p-5 flex flex-wrap items-center justify-between gap-4">
+              <div className="kf-card p-6 flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-bold text-[#14283F]">
-                    {lang === 'ta' ? 'வணக்கம்! இன்றைய கணக்கு சுருக்கம்' : 'Daily Finance Overview'}
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#F7F8FA] text-[#244B70] border border-[#D5DCE4] mb-1.5">
+                    ● LIVE ERP • IST {dashboardData?.today || ''}
+                  </span>
+                  <h2 className="text-xl font-extrabold text-[#14283F]">
+                    {lang === 'ta' ? 'வணக்கம்! இன்றைய நிதி நிலை சுருக்கம்' : 'Executive Finance Overview'}
                   </h2>
-                  <p className="text-sm text-slate-600 mt-0.5">
-                    {lang === 'ta'
-                      ? `இன்றைய தேதி (IST): ${dashboardData?.today || ''}`
-                      : `Business Date (IST): ${dashboardData?.today || ''}`}
-                  </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -915,7 +998,7 @@ export function App() {
                     <>
                       <button
                         onClick={openNewCustomerModal}
-                        className="px-4 py-2.5 text-sm font-semibold text-[#14283F] bg-[#F7F8FA] border border-[#D5DCE4] hover:bg-[#E8EDF2] rounded-md flex items-center gap-2"
+                        className="px-4 py-2.5 text-sm font-bold text-[#14283F] bg-[#F7F8FA] border border-[#D5DCE4] hover:opacity-90 rounded-xl flex items-center gap-2"
                       >
                         <UserPlus className="w-4 h-4 text-[#244B70]" />
                         {lang === 'ta' ? '+ வாடிக்கையாளர் சேர்க்க' : '+ Add Customer'}
@@ -925,7 +1008,7 @@ export function App() {
                           if (customers.length === 0) openNewCustomerModal();
                           else setShowNewLoanModal(true);
                         }}
-                        className="px-4 py-2.5 text-sm font-semibold text-white bg-[#244B70] hover:bg-[#14283F] rounded-md flex items-center gap-2"
+                        className="px-4 py-2.5 text-sm font-bold text-white bg-[#244B70] hover:bg-[#14283F] rounded-xl shadow-sm flex items-center gap-2"
                       >
                         <Plus className="w-4 h-4" />
                         {lang === 'ta' ? '+ புதிய கடன் கொடுக்க' : '+ Give New Loan'}
@@ -934,7 +1017,7 @@ export function App() {
                   )}
                   <button
                     onClick={() => setActiveModule('collections')}
-                    className="px-4 py-2.5 text-sm font-semibold text-white bg-[#188A78] hover:bg-[#136F60] rounded-md flex items-center gap-2"
+                    className="px-4 py-2.5 text-sm font-bold text-white bg-[#188A78] hover:opacity-95 rounded-xl shadow-sm flex items-center gap-2"
                   >
                     <IndianRupee className="w-4 h-4" />
                     {lang === 'ta' ? 'இன்றைய வசூல் போட' : 'Enter Collection'}
@@ -942,58 +1025,88 @@ export function App() {
                 </div>
               </div>
 
-              {/* Clean Summary Cards (Cash in Hand and Bank/UPI Separated) */}
+              {/* Trending Modern Fintech KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white border border-[#D5DCE4] rounded-md p-5">
-                  <div className="text-xs font-semibold text-slate-500">
-                    {lang === 'ta' ? 'இன்றைய வசூல் (Today Collection)' : "Today's Collection"}
+                <div className="kf-card p-5 relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      {lang === 'ta' ? 'இன்றைய வசூல்' : "Today's Collection"}
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-[#F7F8FA] border border-[#D5DCE4] flex items-center justify-center text-[#188A78]">
+                      <IndianRupee className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="mt-2 font-mono tabular-nums text-2xl font-bold text-[#188A78]">
+                  <div className="mt-3 font-mono tabular-nums text-2xl font-extrabold text-[#188A78]">
                     {formatINR(kpis.todaysCollection)}
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {lang === 'ta' ? 'மாத வசூல்:' : 'This Month:'} {formatINR(kpis.monthlyCollection)}
+                  <div className="text-xs text-slate-500 mt-1.5 flex items-center justify-between">
+                    <span>{lang === 'ta' ? 'மாத வசூல்:' : 'This Month:'}</span>
+                    <span className="font-mono font-bold text-[#14283F]">
+                      {formatINR(kpis.monthlyCollection)}
+                    </span>
                   </div>
                 </div>
 
-                <div className="bg-white border border-[#D5DCE4] rounded-md p-5">
-                  <div className="text-xs font-semibold text-slate-500">
-                    {lang === 'ta' ? 'வர வேண்டிய மொத்த நிலுவை (Pending Balance)' : 'Total Pending Balance'}
+                <div className="kf-card p-5 relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      {lang === 'ta' ? 'வர வேண்டிய நிலுவை' : 'Pending Balance'}
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-[#F7F8FA] border border-[#D5DCE4] flex items-center justify-center text-[#244B70]">
+                      <Briefcase className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="mt-2 font-mono tabular-nums text-2xl font-bold text-[#244B70]">
+                  <div className="mt-3 font-mono tabular-nums text-2xl font-extrabold text-[#244B70]">
                     {formatINR(kpis.outstanding)}
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {lang === 'ta' ? 'கையில் வழங்கிய மொத்த பணம்:' : 'Actual Cash Disbursed:'}{' '}
-                    {formatINR(kpis.totalCashDisbursed)}
+                  <div className="text-xs text-slate-500 mt-1.5 flex items-center justify-between">
+                    <span>{lang === 'ta' ? 'வழங்கிய ரொக்கம்:' : 'Cash Disbursed:'}</span>
+                    <span className="font-mono font-bold text-[#14283F]">
+                      {formatINR(kpis.totalCashDisbursed)}
+                    </span>
                   </div>
                 </div>
 
-                <div className="bg-white border border-[#D5DCE4] rounded-md p-5">
-                  <div className="text-xs font-semibold text-slate-500">
-                    {lang === 'ta' ? 'வாடிக்கையாளர்கள் & நடப்புக் கடன்கள்' : 'Customers & Active Loans'}
+                <div className="kf-card p-5 relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      {lang === 'ta' ? 'வாடிக்கையாளர் & கடன்' : 'Customers & Loans'}
+                    </div>
+                    <div className="w-9 h-9 rounded-xl bg-[#F7F8FA] border border-[#D5DCE4] flex items-center justify-center text-[#244B70]">
+                      <Users className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="mt-2 font-mono tabular-nums text-2xl font-bold text-[#14283F]">
-                    {kpis.activeCustomers || 0} / {kpis.activeLoans || 0}
+                  <div className="mt-3 font-mono tabular-nums text-2xl font-extrabold text-[#14283F]">
+                    {kpis.activeCustomers || 0} <span className="text-sm font-normal text-slate-400">/</span>{' '}
+                    {kpis.activeLoans || 0}
                   </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {lang === 'ta'
-                      ? `தவணை தவறியவை: ${kpis.overdueCount || 0} (${formatINR(kpis.overdueAmount)})`
-                      : `Overdue: ${kpis.overdueCount || 0} (${formatINR(kpis.overdueAmount)})`}
+                  <div className="text-xs text-slate-500 mt-1.5 flex items-center justify-between">
+                    <span>{lang === 'ta' ? 'தவணை தவறியவை:' : 'Overdue:'}</span>
+                    <span className="font-mono font-bold text-red-600">
+                      {kpis.overdueCount || 0} ({formatINR(kpis.overdueAmount)})
+                    </span>
                   </div>
                 </div>
 
                 {!isStaffRole && (
-                  <div className="bg-[#14283F] text-white rounded-md p-5">
-                    <div className="text-xs font-semibold text-[#E6D09C]">
-                      {lang === 'ta' ? 'கையிருப்பு ரொக்கம் (Physical Cash)' : 'Physical Cash in Hand'}
+                  <div className="bg-[#14283F] text-white rounded-2xl p-5 shadow-lg">
+                    <div className="flex items-center justify-between">
+                      <div
+                        className="text-xs font-bold uppercase tracking-wider"
+                        style={{ color: 'var(--kf-badge-gold)' }}
+                      >
+                        {lang === 'ta' ? 'கையிருப்பு ரொக்கம்' : 'Physical Cash'}
+                      </div>
+                      <Wallet className="w-4 h-4 text-white/80" />
                     </div>
-                    <div className="mt-2 font-mono tabular-nums text-2xl font-bold text-white">
+                    <div className="mt-3 font-mono tabular-nums text-2xl font-extrabold text-white">
                       {formatINR(kpis.cashInHand)}
                     </div>
-                    <div className="text-xs text-slate-300 mt-1">
-                      {lang === 'ta' ? 'வங்கி / UPI இருப்பு:' : 'Bank / UPI:'}{' '}
-                      {formatINR(kpis.bankBalance)}
+                    <div className="text-xs text-white/80 mt-1.5 flex items-center justify-between">
+                      <span>{lang === 'ta' ? 'வங்கி / UPI இருப்பு:' : 'Bank / UPI:'}</span>
+                      <span className="font-mono font-bold text-white">
+                        {formatINR(kpis.bankBalance)}
+                      </span>
                     </div>
                   </div>
                 )}
