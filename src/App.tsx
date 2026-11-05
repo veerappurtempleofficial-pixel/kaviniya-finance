@@ -172,6 +172,7 @@ export function App() {
     () => ({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      'X-Cloud-Token': localStorage.getItem('kf_cloud_token') || '',
     }),
     [token]
   );
@@ -980,6 +981,55 @@ export function App() {
                 </button>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                showToast(lang === 'ta' ? 'கிளவுடில் சேமிக்கப்படுகிறது...' : 'Syncing to Cloud Vault...');
+                let savedKey = localStorage.getItem('kf_cloud_token') || '';
+                let res = await fetch('/api/system/cloud-sync', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                    'X-Cloud-Token': savedKey,
+                  },
+                  body: JSON.stringify({ token: savedKey }),
+                });
+                let d = await res.json().catch(() => ({}));
+                if (res.ok && d.cloud && !d.cloud.hasToken) {
+                  const entered = window.prompt(
+                    lang === 'ta'
+                      ? 'கிளவுட் ஆட்டோ-சேவ் ஆக்டிவேட் செய்ய உங்கள் GitHub Token-ஐ ஒருமுறை உள்ளிடவும்:'
+                      : 'Enter your GitHub Token once to activate Cloud Auto-Save:'
+                  );
+                  if (entered && entered.trim()) {
+                    savedKey = entered.trim();
+                    localStorage.setItem('kf_cloud_token', savedKey);
+                    res = await fetch('/api/system/cloud-sync', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                        'X-Cloud-Token': savedKey,
+                      },
+                      body: JSON.stringify({ token: savedKey }),
+                    });
+                    d = await res.json().catch(() => ({}));
+                  }
+                }
+                if (res.ok && d.cloud?.status === 'SYNCED') {
+                  showToast(lang === 'ta' ? '☁️ கிளவுடில் அனைத்து தகவல்களும் பாதுகாப்பாக சேமிக்கப்பட்டது!' : '☁️ Saved to Cloud Vault!');
+                } else {
+                  showToast(d.cloud?.error || 'Cloud sync completed');
+                }
+              }}
+              title="Automatic Cloud Vault Persistence Active (Click to sync now)"
+              className="px-3 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="hidden sm:inline">{lang === 'ta' ? '☁️ ஆட்டோ-சேவ் (Cloud)' : '☁️ Cloud Saved'}</span>
+            </button>
 
             <button
               onClick={() => setLang(lang === 'ta' ? 'en' : 'ta')}

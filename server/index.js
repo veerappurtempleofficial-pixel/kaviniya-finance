@@ -22,13 +22,37 @@ import {
   runInTransaction,
   nextSeq,
   getSetting,
+  scheduleCloudSync,
+  syncDbToCloudVault,
+  cloudSyncState,
+  setRuntimeVaultToken,
 } from './db.js';
 
 initDatabase();
+scheduleCloudSync(1500);
 
 export const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
+
+// Auto-sync database to Cloud Vault after any successful write operation
+app.use((req, res, next) => {
+  const headerToken = req.headers['x-cloud-token'];
+  if (typeof headerToken === 'string' && headerToken.trim()) {
+    setRuntimeVaultToken(headerToken);
+  }
+  res.on('finish', () => {
+    if (
+      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
+      res.statusCode < 400 &&
+      !req.path.endsWith('/preview') &&
+      !req.path.endsWith('/cloud-sync')
+    ) {
+      scheduleCloudSync(400);
+    }
+  });
+  next();
+});
 
 // Basic security headers
 app.use((_req, res, next) => {
@@ -1706,6 +1730,18 @@ app.get('/api/system/backup', requireRoles(['OWNER']), (req, res) => {
   db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
   logAudit(req.user, 'BACKUP_CREATED', 'SYSTEM', path.basename(file), 'Database backup downloaded');
   res.download(file, path.basename(file));
+});
+
+app.get('/api/system/cloud-status', requireAuth, (_req, res) => {
+  res.json({ cloud: cloudSyncState });
+});
+
+app.post('/api/system/cloud-sync', requireAuth, async (req, res) => {
+  if (req.body?.token) {
+    setRuntimeVaultToken(String(req.body.token));
+  }
+  await syncDbToCloudVault();
+  res.json({ cloud: cloudSyncState });
 });
 
 // =============================================================================

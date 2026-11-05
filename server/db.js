@@ -14,10 +14,190 @@ export const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const DB_PATH = process.env.TEST_DB_PATH || path.join(DATA_DIR, 'kaviniya_finance.db');
+
+// -----------------------------------------------------------------------------
+// Cloud Vault Persistence (Survives Render / Ephemeral Container Restarts)
+// -----------------------------------------------------------------------------
+const VAULT_REPO = process.env.CLOUD_VAULT_REPO || 'veerappurtempleofficial-pixel/kaviniya-finance';
+const VAULT_BRANCH = process.env.CLOUD_VAULT_BRANCH || 'db-storage';
+const VAULT_FILE = 'vault/kaviniya_finance.db';
+
+let runtimeVaultToken = (process.env.GITHUB_TOKEN || '').trim();
+
+export function setRuntimeVaultToken(token) {
+  if (token && typeof token === 'string' && token.trim().length > 10) {
+    runtimeVaultToken = token.trim();
+    cloudSyncState.hasToken = true;
+  }
+}
+
+function getVaultToken() {
+  return runtimeVaultToken || (process.env.GITHUB_TOKEN || '').trim();
+}
+
+let cachedVaultSha = null;
+export const cloudSyncState = {
+  enabled: process.env.NODE_ENV !== 'test' && !process.env.TEST_DB_PATH,
+  status: 'IDLE',
+  lastSyncedAt: null,
+  lastRestoredAt: null,
+  hasToken: Boolean(runtimeVaultToken),
+  error: null,
+};
+
+async function restoreFromCloudVault(targetPath) {
+  if (!cloudSyncState.enabled) return false;
+  try {
+    const token = getVaultToken();
+    const headers = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Kaviniya-Finance-CloudVault',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const url = `https://api.github.com/repos/${VAULT_REPO}/contents/${VAULT_FILE}?ref=${VAULT_BRANCH}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) return false;
+    const meta = await res.json();
+    cachedVaultSha = meta.sha || null;
+
+    let buf = null;
+    if (meta.content) {
+      buf = Buffer.from(meta.content.replace(/\s+/g, ''), 'base64');
+    } else if (meta.download_url) {
+      const dl = await fetch(meta.download_url);
+      if (dl.ok) buf = Buffer.from(await dl.arrayBuffer());
+    }
+    if (buf && buf.length > 4096 && buf.subarray(0, 15).toString('utf8').startsWith('SQLite format 3')) {
+      fs.writeFileSync(targetPath, buf);
+      cloudSyncState.lastRestoredAt = new Date(Date.now() + 330 * 60 * 1000)
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', ' ');
+      console.log(`[CLOUD VAULT] Restored database from cloud storage (${buf.length} bytes)`);
+      return true;
+    }
+  } catch (err) {
+    console.warn('[CLOUD VAULT] Restore skipped:', err.message);
+  }
+  return false;
+}
+
+if (cloudSyncState.enabled && !fs.existsSync(DB_PATH)) {
+  await restoreFromCloudVault(DB_PATH);
+}
+
 export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA foreign_keys = ON;');
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA busy_timeout = 5000;');
+
+let syncTimer = null;
+let syncInProgress = false;
+let syncPendingAgain = false;
+
+export async function syncDbToCloudVault() {
+  if (!cloudSyncState.enabled) return;
+  const token = getVaultToken();
+  if (!token) {
+    cloudSyncState.hasToken = false;
+    return;
+  }
+  cloudSyncState.hasToken = true;
+  if (syncInProgress) {
+    syncPendingAgain = true;
+    return;
+  }
+  syncInProgress = true;
+  cloudSyncState.status = 'SYNCING';
+  const snapPath = path.join(DATA_DIR, `vault_snap_${Date.now()}.db`);
+  try {
+    db.exec(`VACUUM INTO '${snapPath.replace(/'/g, "''")}'`);
+    const contentB64 = fs.readFileSync(snapPath).toString('base64');
+    try {
+      fs.unlinkSync(snapPath);
+    } catch (_) {}
+
+    const apiUrl = `https://api.github.com/repos/${VAULT_REPO}/contents/${VAULT_FILE}`;
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'Kaviniya-Finance-CloudVault',
+    };
+
+    if (!cachedVaultSha) {
+      const checkRes = await fetch(`${apiUrl}?ref=${VAULT_BRANCH}`, { headers });
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        cachedVaultSha = existing.sha || null;
+      }
+    }
+
+    const body = {
+      message: `Cloud vault sync ${new Date().toISOString()}`,
+      content: contentB64,
+      branch: VAULT_BRANCH,
+      ...(cachedVaultSha ? { sha: cachedVaultSha } : {}),
+    };
+
+    let putRes = await fetch(apiUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    // If SHA changed externally, refresh SHA and retry once
+    if (putRes.status === 409 || putRes.status === 422) {
+      const checkRes = await fetch(`${apiUrl}?ref=${VAULT_BRANCH}`, { headers });
+      if (checkRes.ok) {
+        const existing = await checkRes.json();
+        cachedVaultSha = existing.sha || null;
+        putRes = await fetch(apiUrl, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ ...body, sha: cachedVaultSha }),
+        });
+      }
+    }
+
+    if (putRes.ok) {
+      const saved = await putRes.json();
+      cachedVaultSha = saved?.content?.sha || cachedVaultSha;
+      cloudSyncState.status = 'SYNCED';
+      cloudSyncState.lastSyncedAt = new Date(Date.now() + 330 * 60 * 1000)
+        .toISOString()
+        .slice(0, 19)
+        .replace('T', ' ');
+      cloudSyncState.error = null;
+    } else {
+      const errText = await putRes.text();
+      cloudSyncState.status = 'ERROR';
+      cloudSyncState.error = `HTTP ${putRes.status}: ${errText.slice(0, 120)}`;
+    }
+  } catch (err) {
+    cloudSyncState.status = 'ERROR';
+    cloudSyncState.error = err.message;
+  } finally {
+    try {
+      if (fs.existsSync(snapPath)) fs.unlinkSync(snapPath);
+    } catch (_) {}
+    syncInProgress = false;
+    if (syncPendingAgain) {
+      syncPendingAgain = false;
+      scheduleCloudSync(400);
+    }
+  }
+}
+
+export function scheduleCloudSync(delayMs = 500) {
+  if (!cloudSyncState.enabled) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    syncDbToCloudVault();
+  }, delayMs);
+}
 
 // -----------------------------------------------------------------------------
 // Errors
