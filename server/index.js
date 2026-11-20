@@ -29,7 +29,6 @@ import {
 } from './db.js';
 
 initDatabase();
-scheduleCloudSync(1500);
 
 export const app = express();
 app.disable('x-powered-by');
@@ -48,7 +47,7 @@ app.use((req, res, next) => {
       !req.path.endsWith('/preview') &&
       !req.path.endsWith('/cloud-sync')
     ) {
-      scheduleCloudSync(400);
+      scheduleCloudSync(250);
     }
   });
   next();
